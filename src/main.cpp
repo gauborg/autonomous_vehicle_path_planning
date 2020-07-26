@@ -15,6 +15,7 @@ using std::string;
 using std::vector;
 using std::endl;
 
+
 int main()
 {
   uWS::Hub h;
@@ -55,13 +56,13 @@ int main()
   }
 
   // start in lane 1;
-  int lane_num = 1;
+  int ego_lane = 1;
 
   // set a target velocity
-  double target_vel = 49.5; // mph
+  double target_vel = 0.0; // mph
 
   h.onMessage([&target_vel, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
-               &map_waypoints_dx,&map_waypoints_dy, &lane_num]
+               &map_waypoints_dx,&map_waypoints_dy, &ego_lane]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
@@ -103,27 +104,33 @@ int main()
           // we do this to have a smooth transition between waypoints
           int prev_size = previous_path_x.size();
 
-          /*
+          // ------------------------------- START OF PART 2 ------------------------------------- //
+
           // here we will calculate the distance of other cars in our lane
           if (prev_size > 0)
           {
             car_s = end_path_s;
           }
           
+          // bool parameter to check the proximity of other cars
           bool too_close = false;
-
+          
           // find the reference velocity in case a slower car is detected in our lane
           // iterate through the cars
           for (int i = 0; i < sensor_fusion.size(); i++)
           {
             //car is in ego vehicle's lane
+            // here d represents the d coordinate of the frenet system for car i
             float d = sensor_fusion[i][6];
+
             // this checks if the d value refers to ego vehicle's lane
-            if ((d < (2+4*lane_num+2)) && (d > (2+4*lane_num-2)))
+            if ((d < (2+4*ego_lane+2)) && (d > (2+4*ego_lane-2)))
             {
+              // get the velocities of the i car in x and y directions
               double vx = sensor_fusion[i][3];
               double vy = sensor_fusion[i][4];
-              // get the speed value
+
+              // get the speed value using the distance formula
               double check_speed = sqrt(vx*vx + vy*vy);
               // check the car's s value
               double check_car_s = sensor_fusion[i][5];
@@ -133,8 +140,8 @@ int main()
               if ((check_car_s > car_s) && ((check_car_s - car_s) < 30))
               {
                 // some logic check here, lower reference velocity so that we don't crash into the other car in front of us
-                target_vel = 29.5;  // mph
-                //too_close = true;
+                // target_vel = 29.5;  // mph
+                too_close = true;
               }
 
             } // end of if loop
@@ -143,26 +150,32 @@ int main()
 
           // if the vehicle is too close, slow down
           if(too_close)
-          {
+          { 
+            // if too close, decelerate
             target_vel -= 0.224;    // deceleration of 5m/sec2
           }
           // speed up slowly always
           else if (target_vel < 49.5)
           {
+            // else if target velocity is less than 50 mph, accelerate
             target_vel += 0.224;      // acceleration of 5m/sec2
           }
-          */
-          
+
+          // ------------------------------- END OF PART 2 ------------------------------------- //
+
+          // ------------------------------ START OF PART 1 ----------------------------------- //
+
           json msgJson;
           
-          
+          // PART 1: Keep the car below 50 mph and keep the car in its lane
+          // PART 1: Keep the Jerk and acceleration smooth
           // create a list of widely spaced (x, y) waypoints, evenly spaced at 30m
           // later I will interpolate these points with a spline and add more points
 
           vector<double> ptsx;
           vector<double> ptsy;
 
-          // reference x,y, yaw states
+          // reference x, y, yaw states
           double ref_x = car_x;
           double ref_y = car_y;
           double ref_yaw = deg2rad(car_yaw);
@@ -181,6 +194,7 @@ int main()
             ptsy.push_back(prev_car_y);
             ptsy.push_back(car_y);
           }
+
           // use the previous path's end point as starting reference
           else
           {
@@ -203,9 +217,9 @@ int main()
           
           // in Frenet, we will add 30m evenly spaced points ahead of starting reference
           // we add three more waypoints in between the two waypoints
-          vector<double> next_wp0 = getXY(car_s+30,(2+4*lane_num), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          vector<double> next_wp1 = getXY(car_s+60,(2+4*lane_num), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          vector<double> next_wp2 = getXY(car_s+90,(2+4*lane_num), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp0 = getXY(car_s+30,(2+4*ego_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp1 = getXY(car_s+60,(2+4*ego_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp2 = getXY(car_s+90,(2+4*ego_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
           
           ptsx.push_back(next_wp0[0]);
           ptsx.push_back(next_wp1[0]);
@@ -283,9 +297,9 @@ int main()
             next_x_vals.push_back(x_point);
             next_y_vals.push_back(y_point);
 
-
           }
-          
+
+          // ---------------------------------- END OF PART 1 -------------------------------------- //          
 
           /*
           // basic run check to see how car runs around the track
