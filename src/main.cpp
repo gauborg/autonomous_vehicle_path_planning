@@ -119,7 +119,7 @@ int main()
           // iterate through the cars
           for (int i = 0; i < sensor_fusion.size(); i++)
           {
-            //car is in ego vehicle's lane
+            // car is in ego vehicle's lane
             // here d represents the d coordinate of the frenet system for car i
             float d = sensor_fusion[i][6];
 
@@ -151,15 +151,45 @@ int main()
           // if the vehicle is too close, slow down
           if(too_close)
           { 
+            std::cout<<"Slower vehicle in current lane!"<<std::endl;
             // if too close, decelerate
             target_vel -= 0.224;    // deceleration of 5m/sec2
+            
+            // check the left lane for any approaching vehicles
+            for (int i = 0; i < sensor_fusion.size(); i++)
+            { 
+              // check which car is in the left lane (d < 2+4*ego_lane)
+              double left_lane_car_d = sensor_fusion[i][6];
+              if ((left_lane_car_d < ((2+4*ego_lane) - 2)) && (ego_lane != 0))
+              { 
+                // get the left lane vehicle's data 
+                double left_lane_car_vx = sensor_fusion[i][3];
+                double left_lane_car_vy = sensor_fusion[i][4];
+
+                // calculate left lane vehicle speed
+                double left_lane_car_speed = sqrt((left_lane_car_vx*left_lane_car_vx) + (left_lane_car_vy*left_lane_car_vy));
+                // get the value of s co-ordinate
+                double left_lane_car_s = sensor_fusion[i][5];
+                
+                // check the future position of the car
+                double check_left_car_s = ((double)prev_size*.02*left_lane_car_speed);
+                if (check_left_car_s < car_s)
+                {
+                  // change lane
+                  std::cout<<"Switching to left lane ..."<<std::endl;
+                  ego_lane = ego_lane - 1;
+                }
+              }
+            }   // end of outer if loop
           }
-          // speed up slowly always
+          // speed up when no slower vehicle is detected
           else if (target_vel < 49.5)
           {
             // else if target velocity is less than 50 mph, accelerate
-            target_vel += 0.224;      // acceleration of 5m/sec2
+            target_vel += 0.3136;      // acceleration of 5m/sec2
           }
+          
+
 
           // ------------------------------- END OF PART 2 ------------------------------------- //
 
