@@ -59,9 +59,10 @@ int main()
   int ego_lane = 1;
 
   // set a target velocity
-  double target_vel = 0.0; // mph
+  double ego_vel = 0.0; // mph
 
-  h.onMessage([&target_vel, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
+
+  h.onMessage([&ego_vel, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
                &map_waypoints_dx,&map_waypoints_dy, &ego_lane]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
@@ -104,27 +105,74 @@ int main()
           // we do this to have a smooth transition between waypoints
           int prev_size = previous_path_x.size();
 
-          // ------------------------------- START OF PART 2 ------------------------------------- //
-
           // here we will calculate the distance of other cars in our lane
           if (prev_size > 0)
           {
             car_s = end_path_s;
           }
+
           
-          // bool parameter to check the proximity of other cars
-          bool too_close = false;
+          // ---------------- Track other vehicles and adjust behavior ----------------- //
           
-          // find the reference velocity in case a slower car is detected in our lane
-          // iterate through the cars
+          /*
+
+          Here, we track speeds of different vehicles and calculate their
+          future s co-ordinates based on current speed so as to make lane
+          change decisions.
+          We decide to make lane changes only when the vehicle behind is
+          going slower and when it is sufficiently behind the ego vehicle.
+
+          To debug this part of the code, I have written status messages to
+          be displayed to the output screen, whenever the ego vehicle detects
+          a slow moving vehicle and needs to change lane.
+
+          */
+          
+          // ----------------------- TRACKING OTHER VEHICLES ------------------------- //
+          
+          // Track slow moving car in ego vehicle's path
+          bool car_in_lane = false;
+
+          // parameters to check cars in left and right lanes
+          bool left_lane_car = false;
+          bool right_lane_car = false;
+
+          // iterate through all the other cars on the track and get their all
+          // properties such as d co-ordinate (lane), s co-ordinate and speed
+
+          // vector<double> costs;
+
           for (int i = 0; i < sensor_fusion.size(); i++)
           {
-            // car is in ego vehicle's lane
-            // here d represents the d coordinate of the frenet system for car i
+            // d co-ordinate of the i'th car
             float d = sensor_fusion[i][6];
 
-            // this checks if the d value refers to ego vehicle's lane
-            if ((d < (2+4*ego_lane+2)) && (d > (2+4*ego_lane-2)))
+            // default car lane in case the vehicle is not moving in the direction of the ego vehicle
+            int car_lane = -1;
+
+            // compare the d coordinate of the other vehicle to check its lane
+            if (d > 0 && d < 4)
+            {
+              // leftmost lane
+              car_lane = 0;
+            }
+            else if (d > 4 && d < 8)
+            {
+              // second from the leftmost lane
+              car_lane = 1;
+            }
+            else if (d > 8 && d < 12)
+            {
+              // third from the leftmost lane
+              car_lane = 2;
+            }
+
+            // applies for incoming traffic, doesn't concern our lane change decision making
+            if (d < 0)
+            {
+              continue;
+            }
+            else
             {
               // get the velocities of the i car in x and y directions
               double vx = sensor_fusion[i][3];
@@ -136,64 +184,113 @@ int main()
               double check_car_s = sensor_fusion[i][5];
 
               // if using previous points, can project s value
-              check_car_s += ((double)prev_size*.02*check_speed);
-              if ((check_car_s > car_s) && ((check_car_s - car_s) < 30))
+              check_car_s += ((double)prev_size*0.02*check_speed);
+
+              /*
+              We will try using some cost functions here to determine the best lane
+              by looking at the locations of other vehicles ahead of ego vehicle.
+              This can help us in situations where we have multiple vehicles ahead of us
+              and we have to decide the best possible lane for overtaking.
+              */
+
+              /*
+
+              if ((check_car_s > car_s) && (car_lane == ego_lane))
               {
-                // some logic check here, lower reference velocity so that we don't crash into the other car in front of us
-                // target_vel = 29.5;  // mph
-                too_close = true;
-              }
-
-            } // end of if loop
-
-          } // end of for loop
-
-          // if the vehicle is too close, slow down
-          if(too_close)
-          { 
-            std::cout<<"Slower vehicle in current lane!"<<std::endl;
-            // if too close, decelerate
-            target_vel -= 0.224;    // deceleration of 5m/sec2
-            
-            // check the left lane for any approaching vehicles
-            for (int i = 0; i < sensor_fusion.size(); i++)
-            { 
-              // check which car is in the left lane (d < 2+4*ego_lane)
-              double left_lane_car_d = sensor_fusion[i][6];
-              if ((left_lane_car_d < ((2+4*ego_lane) - 2)) && (ego_lane != 0))
-              { 
-                // get the left lane vehicle's data 
-                double left_lane_car_vx = sensor_fusion[i][3];
-                double left_lane_car_vy = sensor_fusion[i][4];
-
-                // calculate left lane vehicle speed
-                double left_lane_car_speed = sqrt((left_lane_car_vx*left_lane_car_vx) + (left_lane_car_vy*left_lane_car_vy));
-                // get the value of s co-ordinate
-                double left_lane_car_s = sensor_fusion[i][5];
                 
-                // check the future position of the car
-                double check_left_car_s = ((double)prev_size*.02*left_lane_car_speed);
-                if (check_left_car_s < car_s)
+
+              }
+              
+              */
+
+              // check for cars in the vicinity of ego vehicle for which we may need to
+              // predict future behavior planning
+              if (car_lane == ego_lane)
+              {
+                // a car is detected in our lane
+                car_in_lane |= (check_car_s > car_s) && (check_car_s - car_s < 30);
+                if(car_in_lane)
                 {
-                  // change lane
-                  std::cout<<"Switching to left lane ..."<<std::endl;
-                  ego_lane = ego_lane - 1;
+                  std::cout<<"Slow moving vehicle in current lane!"<<std::endl;
                 }
               }
-            }   // end of outer if loop
+              else if (car_lane - ego_lane == 1)
+              {
+                // car in right lane
+                right_lane_car |= (car_s - 30 < check_car_s) && (car_s + 30 > check_car_s);
+              }
+              else if (car_lane - ego_lane == -1)
+              {
+                // car in left lane
+                left_lane_car |= (car_s - 30 < check_car_s) && (car_s + 30 > check_car_s);
+              }
+            }   // end of for loop
           }
-          // speed up when no slower vehicle is detected
-          else if (target_vel < 49.5)
-          {
-            // else if target velocity is less than 50 mph, accelerate
-            target_vel += 0.3136;      // acceleration of 5m/sec2
-          }
+
+
+          //* ------------------------ END OF VEHICLE TRACKING --------------------------- *//
           
+          //* ------------------------- LANE CHANGE EXECUTION ---------------------------- *//
 
+          // DECIDE BEHAVIOR BASED ON PREDICTIONS //
+          double speed_diff = 0.0;
+          
+          // maximum permissible acceleration in m/sec2
+          const double max_acc = 0.224;
 
-          // ------------------------------- END OF PART 2 ------------------------------------- //
+          // define maximum allowed velocity in mph
+          const double max_vel = 49.5;
 
-          // ------------------------------ START OF PART 1 ----------------------------------- //
+          // if a slow vehicle is detected in ego vehicle lane, make the lane change
+          // by checking both left and right lanes for safety
+          if (car_in_lane)
+          {
+            // check if there is no car on left and ego vehicle lane is not in the leftmost lane
+            if (ego_lane > 0 && left_lane_car == false)
+            {
+              // make a left lane change
+              ego_lane--;
+              std::cout<<"Change to left lane "<<ego_lane<<"..."<<std::endl;
+            }
+            // check if there is no car on right and tgat 
+            else if (ego_lane != 2 && right_lane_car == false)
+            {
+              // make a right lane change
+              ego_lane++;
+              std::cout<<"Change to right lane "<<ego_lane<<"..."<<std::endl;
+            }
+            else
+            {
+              speed_diff -= max_acc;
+              std::cout<<"Overtaking not possible because of vehicles in surrounding lanes ..."<<std::endl;
+            }
+          }
+          // if no car is in the ego vehicle's path, and the ego vehicle is not in the center lane
+          // move back to center lane
+          else
+          {
+            // check that we are not on the center lane
+            if (ego_lane != 1)
+            {
+              // if there is no car in either lanes in proximity
+              if ((ego_lane == 0 && !right_lane_car) || (ego_lane == 2 && !left_lane_car))
+              {
+                // move back to center lane
+                ego_lane = 1;
+                std::cout<<"Moving back to center lane ..."<<std::endl;
+              }
+            }
+            // accelerate if no obstacle in front and speed is less than the speed limit
+            if (ego_vel < max_vel)
+            {
+                // accelerate faster
+                ego_vel += 1.1 * max_acc;
+            }
+          }
+
+          //* -------------------------- END OF VEHICLE TRACKING ---------------------------- *//
+
+          // ------------------------------ START OF PART 1 --------------------------------- //
 
           json msgJson;
           
@@ -288,7 +385,7 @@ int main()
           // TODO: define a path made up of (x,y) points that the car will visit
 
           // start with all of the previous path points from last time
-          for (int i = 0; i < previous_path_x.size(); i++)
+          for (int i = 0; i < prev_size; i++)
           {
             next_x_vals.push_back(previous_path_x[i]);
             next_y_vals.push_back(previous_path_y[i]);
@@ -304,29 +401,43 @@ int main()
           double x_add_on = 0;
 
           // add rest of the path planner after filling it with previous points
-          for (int i = 1; i <= 50-previous_path_x.size(); i++)
+          for (int i = 1; i < 50-prev_size; i++)
           { 
-            // define the number of points
-            // divide by 2.2369 to convert mph to m/sec
-            double N = (target_dist/(target_vel*0.02/2.2369));
-            double x_point = x_add_on+(target_x/N);
-            double y_point = s(x_point);
+              // default, accelerate the ego vehicle
+              ego_vel += speed_diff;
+              
+              // if the velocity increases beyond max permissible speed,
+              // set speed to max speed to avoid further acceleration
+              if (ego_vel > max_vel)
+              {
+                ego_vel = max_vel;
+              }
+              else if (ego_vel < max_acc)
+              {
+                ego_vel = max_acc;
+              }
 
-            x_add_on = x_point;
+              // define the number of points
+              // divide by 2.2369 to convert mph to m/sec
+              double N = target_dist/(0.02*ego_vel/2.24);
+              double x_point = x_add_on + target_x/N;
+              double y_point = s(x_point);
 
-            double x_ref = x_point;
-            double y_ref = y_point;
+              x_add_on = x_point;
 
-            // rotate back to normal after rotating the system earlier
-            x_point = (x_ref *cos(ref_yaw)-y_ref*sin(ref_yaw));
-            y_point = (x_ref *sin(ref_yaw)+y_ref*cos(ref_yaw));
+              double x_ref = x_point;
+              double y_ref = y_point;
 
-            x_point += ref_x;
-            y_point += ref_y;
+              // rotate back to normal after rotating the system earlier
+              x_point = x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw);
+              y_point = x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw);
 
-            next_x_vals.push_back(x_point);
-            next_y_vals.push_back(y_point);
+              x_point += ref_x;
+              y_point += ref_y;
 
+              next_x_vals.push_back(x_point);
+              next_y_vals.push_back(y_point);
+            
           }
 
           // ---------------------------------- END OF PART 1 -------------------------------------- //          
