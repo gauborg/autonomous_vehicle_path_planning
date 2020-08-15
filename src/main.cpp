@@ -110,12 +110,14 @@ int main()
           {
             car_s = end_path_s;
           }
-
           
           // ---------------- Track other vehicles and adjust behavior ----------------- //
           
-          /*
+          //////////////////////////////////////////////////////////////////////////////////
+          //***** ------------ BEHAVIOR PLANNING USING COST FUNCTIONS -------------- *****//
 
+          /* This section can be commented out if cost functions are not to
+          be taken into account.
           Here, we track speeds of different vehicles and calculate their
           future s co-ordinates based on current speed so as to make lane
           change decisions.
@@ -125,23 +127,29 @@ int main()
           To debug this part of the code, I have written status messages to
           be displayed to the output screen, whenever the ego vehicle detects
           a slow moving vehicle and needs to change lane.
-
           */
           
           // ----------------------- TRACKING OTHER VEHICLES ------------------------- //
           
           // Track slow moving car in ego vehicle's path
           bool car_in_lane = false;
+          // early detection parameter
+          bool early_detection = false;
 
           // parameters to check cars in left and right lanes
           bool left_lane_car = false;
           bool right_lane_car = false;
 
+          // Speed difference in ego and other vehicles //
+          double speed_diff = 0.0;
+          // maximum permissible acceleration in m/sec2
+          const double max_acc = 0.224;
+
+          // define maximum allowed velocity in mph
+          const double max_vel = 49.5;
+
           // iterate through all the other cars on the track and get their all
           // properties such as d co-ordinate (lane), s co-ordinate and speed
-
-          // vector<double> costs;
-
           for (int i = 0; i < sensor_fusion.size(); i++)
           {
             // d co-ordinate of the i'th car
@@ -166,7 +174,6 @@ int main()
               // third from the leftmost lane
               car_lane = 2;
             }
-
             // applies for incoming traffic, doesn't concern our lane change decision making
             if (d < 0)
             {
@@ -186,32 +193,16 @@ int main()
               // if using previous points, can project s value
               check_car_s += ((double)prev_size*0.02*check_speed);
 
-              /*
-              We will try using some cost functions here to determine the best lane
-              by looking at the locations of other vehicles ahead of ego vehicle.
-              This can help us in situations where we have multiple vehicles ahead of us
-              and we have to decide the best possible lane for overtaking.
-              */
-
-              /*
-
-              if ((check_car_s > car_s) && (car_lane == ego_lane))
-              {
-                
-
-              }
-              
-              */
-
               // check for cars in the vicinity of ego vehicle for which we may need to
               // predict future behavior planning
               if (car_lane == ego_lane)
-              {
-                // a car is detected in our lane
+              { 
                 car_in_lane |= (check_car_s > car_s) && (check_car_s - car_s < 30);
+                // a car is detected in our lane
+                // this will print a message if slow moving vehicle is detected in ego vehicle's path
                 if(car_in_lane)
                 {
-                  std::cout<<"Slow moving vehicle in current lane!"<<std::endl;
+                  std::cout<<"Slow moving vehicle in current lane!\r"<<std::endl;
                 }
               }
               else if (car_lane - ego_lane == 1)
@@ -226,20 +217,9 @@ int main()
               }
             }   // end of for loop
           }
-
-
           //* ------------------------ END OF VEHICLE TRACKING --------------------------- *//
-          
+
           //* ------------------------- LANE CHANGE EXECUTION ---------------------------- *//
-
-          // DECIDE BEHAVIOR BASED ON PREDICTIONS //
-          double speed_diff = 0.0;
-          
-          // maximum permissible acceleration in m/sec2
-          const double max_acc = 0.224;
-
-          // define maximum allowed velocity in mph
-          const double max_vel = 49.5;
 
           // if a slow vehicle is detected in ego vehicle lane, make the lane change
           // by checking both left and right lanes for safety
@@ -290,7 +270,7 @@ int main()
 
           //* -------------------------- END OF VEHICLE TRACKING ---------------------------- *//
 
-          // ------------------------------ START OF PART 1 --------------------------------- //
+          // ------------------------------- START OF PART 1 --------------------------------- //
 
           json msgJson;
           
@@ -298,7 +278,6 @@ int main()
           // PART 1: Keep the Jerk and acceleration smooth
           // create a list of widely spaced (x, y) waypoints, evenly spaced at 30m
           // later I will interpolate these points with a spline and add more points
-
           vector<double> ptsx;
           vector<double> ptsy;
 
@@ -306,7 +285,6 @@ int main()
           double ref_x = car_x;
           double ref_y = car_y;
           double ref_yaw = deg2rad(car_yaw);
-
 
           // if previous size is almost empty, use the car as starting reference
           if (prev_size < 2)
@@ -321,7 +299,6 @@ int main()
             ptsy.push_back(prev_car_y);
             ptsy.push_back(car_y);
           }
-
           // use the previous path's end point as starting reference
           else
           {
@@ -339,9 +316,7 @@ int main()
 
             ptsy.push_back(ref_y_prev);
             ptsy.push_back(ref_y);
-
           }
-          
           // in Frenet, we will add 30m evenly spaced points ahead of starting reference
           // we add three more waypoints in between the two waypoints
           vector<double> next_wp0 = getXY(car_s+30,(2+4*ego_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
@@ -355,9 +330,6 @@ int main()
           ptsy.push_back(next_wp0[1]);
           ptsy.push_back(next_wp1[1]);
           ptsy.push_back(next_wp2[1]);
-          
-          // std::cout<<"ptsx size = "<<ptsx.size()<<endl;
-          // std::cout<<"ptsy size = "<<ptsy.size()<<endl;
 
           // shift to car's co-ordinates
           for (int i = 0; i < ptsx.size(); i++)
@@ -367,10 +339,6 @@ int main()
 
             ptsx[i] = (shift_x *cos(0-ref_yaw)-shift_y*sin(0-ref_yaw));
             ptsy[i] = (shift_x *sin(0-ref_yaw)+shift_y*cos(0-ref_yaw));
-
-            // std::cout<<"x = "<<ptsx[i]<<endl;
-            // std::cout<<"y = "<<ptsy[i]<<endl;
-
           }
 
           // create a spline
@@ -391,7 +359,6 @@ int main()
             next_y_vals.push_back(previous_path_y[i]);
           }
 
-
           // Calculate how to break up spline points so that we travel at our desired reference velocity
           double target_x = 30.0;
           // get the corresponding y point for target x value from spline
@@ -408,6 +375,7 @@ int main()
               
               // if the velocity increases beyond max permissible speed,
               // set speed to max speed to avoid further acceleration
+              
               if (ego_vel > max_vel)
               {
                 ego_vel = max_vel;
@@ -416,7 +384,6 @@ int main()
               {
                 ego_vel = max_acc;
               }
-
               // define the number of points
               // divide by 2.2369 to convert mph to m/sec
               double N = target_dist/(0.02*ego_vel/2.24);
@@ -437,11 +404,10 @@ int main()
 
               next_x_vals.push_back(x_point);
               next_y_vals.push_back(y_point);
-            
           }
 
           // ---------------------------------- END OF PART 1 -------------------------------------- //          
-
+          // --------------------------------- BASIC RUN CHECK ------------------------------------- //  
           /*
           // basic run check to see how car runs around the track
           vector<double> next_x_vals;
@@ -457,6 +423,8 @@ int main()
             next_x_vals.push_back(xy[0]);
             next_y_vals.push_back(xy[1]);
           }
+
+          // ------------------------------- END OF BASIC RUN ------------------------------------- //  
           */
 
           msgJson["next_x"] = next_x_vals;
