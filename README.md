@@ -140,6 +140,97 @@ that's just a guess.
 One last note here: regardless of the IDE used, every submitted project must
 still be compilable with cmake and make./
 
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
+---
+## WriteUp Explanation
+
+Here are the targets achieved -
+
+**1. The car is able to drive at least 4.32 miles without incident.**
+
+    Yes. I tested the code for a distance of about 9-10 miles and the car is able to complete the lap without any incident.
+
+**2. The car drives according to the speed limit.**
+
+    The car is able to drive most of the track as per the speed limit unless slowed down by a slow moving vehicle in its path and unsafe overtaking conditions.
+
+**3. Max Acceleration and Jerk are not Exceeded.**
+
+    The maximum accleration and jerk values are never exceeded. Even in special cases such as random lane changes of other vehicles, the ego vehicle doesn't cross its deceleration threshold value.
+
+**4. Car does not have collisions.**
+
+    Car does not have collisions in most of the cases except in the remote chance when the other vehicle changes lanes into ego vehicle's lane at the last moment since the car is not programmed for evasive manuevers.
+
+**5. The car stays in its lane, except for the time between changing lanes.**
+
+    The car stays in its lane almost always except when changing lanes. The code takes care of this when generating its trajectory.
+
+**6. The car is able to change lanes.**
+
+    The car changes its lanes smoothly without spending more than 3 seconds outside lane. The car also moves back to center lane if no other obstacles exist in its path.
+
+---
+## Project Reflection
+
+Since the overall code is short, I have not written separate functions for executing prediction and planning functionalities. This helps in avoiding creating unnecessary complications such as passing variable values/references to other functions. It avoids the chances of mistakes/bugs and also saves memory considerably.
+
+We will divide the code in three sections mainly Trajectory Generation, Tracking (Prediction) and Behavior Planning.
+
+We will discuss these sections one by one now -
+
+<span style="font-size:1.8em;">1. Trajectory Generation</span>
+
+Inside data/highway_map.csv there is a list of waypoints that go all the way around the track. The track contains a total of 181 waypoints, with the last waypoint mapping back around to the first. The waypoints are in the middle of the double-yellow dividing line in the center of the highway.
+
+Each waypoint has an (x,y) global map position, and a Frenet s value and Frenet d unit normal vector (split up into the x component, and the y component). The s value is the distance along the direction of the road. The first waypoint has an s value of 0 because it is the starting point.
+
+We use the [spline](https://kluge.in-chemnitz.de/opensource/spline/) tool to interpolate the location of points between the known waypoints. This will ensure a smooth trajectory generation.
+
+The basic trajectory which gets the car moving is given below. This has been commented out in the code since we will use a more advanced trajectory generation method (which takes care of acceleration and jerk thresholds).
+
+```C++
+/*
+// basic run check to see how car runs around the track
+vector<double> next_x_vals;
+vector<double> next_y_vals;
+
+double dist_inc = 0.4;
+for (int i = 0; i < 50; i++)
+{
+  double next_s = car_s+(i+1)*dist_inc;
+  double next_d = 6;
+  vector<double> xy = getXY(next_s, next_d, map_waypoints_s,map_waypoints_x, map_waypoints_y);
+
+  next_x_vals.push_back(xy[0]);
+  next_y_vals.push_back(xy[1]);
+}
+*/
+```
+As we can see above, we calculate the next s and next d values depending on the waypoints provided to us. For a distance increment of 0.4, we calculate the 50 values of x and y for the ego vehicle as the trajectory.
+
+Note: Important !!! This code is simply to get the car moving without any lane changes or acceleration/jerk values.
+
+The actual code which ensures smooth acceleration and minimal jerk is given above it from lines 331-467.
+We use the last two points of the previous planned trajectory are used to initialize the spline calculations (347-377). We also convert the coordinates to local co-ordinates for ease of calculations and again to global later. We use the previous two points that make the path tangent to the previous path's end point (lines 367-371). For smooth transition between previous and current trajectories, we use the spline tool. Using Frenet coordinates, we add evenly spaced points at a distance of 30m ahead of starting reference. This adds three more waypoints in between the two main waypoints. See the code below -
+
+```C++
+vector<double> next_wp0 = getXY(car_s+30,(2+4*ego_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+vector<double> next_wp1 = getXY(car_s+60,(2+4*ego_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+vector<double> next_wp2 = getXY(car_s+90,(2+4*ego_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+ptsx.push_back(next_wp0[0]);
+ptsx.push_back(next_wp1[0]);
+ptsx.push_back(next_wp2[0]);
+
+ptsy.push_back(next_wp0[1]);
+ptsy.push_back(next_wp1[1]);
+ptsy.push_back(next_wp2[1]);
+```
+
+Using 50 points for planning the trajectory, depending on other vehicles, we calculate the points based on the refresh interval of 0.02 seconds.
+
+
+
+
+
 
