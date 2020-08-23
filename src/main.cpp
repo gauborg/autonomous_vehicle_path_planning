@@ -133,12 +133,30 @@ int main()
           
           // Track slow moving car in ego vehicle's path
           bool car_in_lane = false;
-          // early detection parameter
-          bool early_detection = false;
-
+          
           // parameters to check cars in left and right lanes
           bool left_lane_car = false;
           bool right_lane_car = false;
+
+          /*
+          bool left_lane_front = false;
+          bool right_lane_front = false;
+          bool car_left_rearview = false;
+          bool car_right_rearview = false;
+
+          // parameter for a special case when there is a slow moving vehicle behind
+          bool slower_car_behind_left_lane = false;
+          bool slower_car_behind_right_lane = false;
+          */
+
+          // parameter to compensate for random lane changing vehicles
+          bool too_close = false;
+          bool safe_to_overtake = false;
+
+          // parameter tracking vehicle, distance and velocity
+          double track_vel;
+          double track_dist;
+          int vehicle_id;
 
           // Speed difference in ego and other vehicles //
           double speed_diff = 0.0;
@@ -146,6 +164,7 @@ int main()
           const double max_acc = 0.224;
 
           // define maximum allowed velocity in mph
+          // this will be constant throughout
           const double max_vel = 49.5;
 
           // iterate through all the other cars on the track and get their all
@@ -186,37 +205,61 @@ int main()
               double vy = sensor_fusion[i][4];
 
               // get the speed value using the distance formula
-              double check_speed = sqrt(vx*vx + vy*vy);
+              double vehicle_speed = sqrt(vx*vx + vy*vy);
               // check the car's s value
               double check_car_s = sensor_fusion[i][5];
 
               // if using previous points, can project s value
-              check_car_s += ((double)prev_size*0.02*check_speed);
+              check_car_s += ((double)prev_size*0.02*vehicle_speed);
+
+              /*
+              // parameter to track distance of a preceding vehicle
+              if (car_lane == ego_lane)
+              {
+                if ((check_car_s > car_s) && (check_car_s - car_s < 60))
+                {
+                  track_dist = check_car_s - car_s;
+                  track_vel = vehicle_speed;
+                }
+                else
+                {
+                  track_dist = 0;
+                  track_vel = 0;
+                }
+              }
+              */
 
               // check for cars in the vicinity of ego vehicle for which we may need to
               // predict future behavior planning
               if (car_lane == ego_lane)
               { 
                 car_in_lane |= (check_car_s > car_s) && (check_car_s - car_s < 30);
+                // set the tracking id of the vehicle
+                vehicle_id = i;
+                // start tracking this vehicle
+                track_dist = check_car_s - car_s;
+                track_vel = vehicle_speed;
+
                 // a car is detected in our lane
-                // this will print a message if slow moving vehicle is detected in ego vehicle's path
-                if(car_in_lane)
+                if ((car_in_lane) && (check_car_s - car_s < 15))
                 {
-                  std::cout<<"Slow moving vehicle in current lane!\r"<<std::endl;
+                  // parameter to check sudden lane changes of other vehicles
+                  too_close = true;
                 }
               }
               else if (car_lane - ego_lane == 1)
               {
-                // car in right lane
-                right_lane_car |= (car_s - 30 < check_car_s) && (car_s + 30 > check_car_s);
+                // check if a car is present in the right lane
+                right_lane_car |= ((car_s - 30 < check_car_s) && (car_s + 30 > check_car_s));
               }
               else if (car_lane - ego_lane == -1)
               {
-                // car in left lane
-                left_lane_car |= (car_s - 30 < check_car_s) && (car_s + 30 > check_car_s);
+                // check if a car is present in the left lane
+                left_lane_car |= ((car_s - 30 < check_car_s) && (car_s + 30 > check_car_s));
               }
-            }   // end of for loop
-          }
+            }
+          }     // end of for loop
+          
           //* ------------------------ END OF VEHICLE TRACKING --------------------------- *//
 
           //* ------------------------- LANE CHANGE EXECUTION ---------------------------- *//
@@ -227,6 +270,7 @@ int main()
           {
             // check if there is no car on left and ego vehicle lane is not in the leftmost lane
             if (ego_lane > 0 && left_lane_car == false)
+            // if ((ego_lane > 0) && (left_lane_car_in_front == false) && (left_lane_car_behind == false))
             {
               // make a left lane change
               ego_lane--;
@@ -234,6 +278,7 @@ int main()
             }
             // check if there is no car on right and tgat 
             else if (ego_lane != 2 && right_lane_car == false)
+            // else if ((ego_lane > 0) && (right_lane_car_in_front == false) && (right_lane_car_behind == false))
             {
               // make a right lane change
               ego_lane++;
@@ -241,8 +286,28 @@ int main()
             }
             else
             {
-              speed_diff -= max_acc;
-              std::cout<<"Overtaking not possible because of vehicles in surrounding lanes ..."<<std::endl;
+              // this parameter will define the rate of acceleration or deceleration
+              double acc_val = ((30-track_dist)/30) * max_acc;
+              // double acc_val2 = (track_vel/ego_vel) * max_acc;
+              if (track_dist <= 25 && track_dist > 0)
+              {
+                speed_diff -= acc_val;
+              }
+              // case when overtaking is not possible due to both surrounding lanes occupied by other vehicles 
+              else if ((ego_vel < track_vel) || ((track_dist > 25 && track_dist < 35)))
+              {
+                // accelerate
+                speed_diff += 1.5*max_acc;
+                // speed_diff += acc_val2;
+              }
+              // emergency brake if some other vehicle cuts lanes
+              // this will cause a net max deceleration of 1.5 * max acceleration value set
+              if (too_close)
+              {
+                std::cout<<"Too close, hard brake!!!\r";
+                speed_diff -= (0.75*max_acc);
+              }
+              std::cout<<"Overtaking not possible because of vehicles in surrounding lanes ...\r";
             }
           }
           // if no car is in the ego vehicle's path, and the ego vehicle is not in the center lane
@@ -263,14 +328,14 @@ int main()
             // accelerate if no obstacle in front and speed is less than the speed limit
             if (ego_vel < max_vel)
             {
-                // accelerate faster
-                ego_vel += 1.1 * max_acc;
+              // accelerate faster 
+              ego_vel += 1.25 * max_acc;
             }
           }
 
           //* -------------------------- END OF VEHICLE TRACKING ---------------------------- *//
 
-          // ------------------------------- START OF PART 1 --------------------------------- //
+          // ------------------------ START OF TRAJECTORY GENERATION ------------------------ //
 
           json msgJson;
           
@@ -370,7 +435,7 @@ int main()
           // add rest of the path planner after filling it with previous points
           for (int i = 1; i < 50-prev_size; i++)
           { 
-              // default, accelerate the ego vehicle
+              // default, accelerate the ego vehicle depending on the speed difference
               ego_vel += speed_diff;
               
               // if the velocity increases beyond max permissible speed,
@@ -406,7 +471,7 @@ int main()
               next_y_vals.push_back(y_point);
           }
 
-          // ---------------------------------- END OF PART 1 -------------------------------------- //          
+          // ------------------------- END OF PART TRAJECTORY GENERATION ---------------------------- //          
           // --------------------------------- BASIC RUN CHECK ------------------------------------- //  
           /*
           // basic run check to see how car runs around the track
@@ -423,9 +488,10 @@ int main()
             next_x_vals.push_back(xy[0]);
             next_y_vals.push_back(xy[1]);
           }
+          */
 
           // ------------------------------- END OF BASIC RUN ------------------------------------- //  
-          */
+          
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
