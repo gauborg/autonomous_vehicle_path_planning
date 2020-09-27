@@ -292,6 +292,10 @@ if (ego_lane > 0 && left_lane_car == false)
 }
 ```
 
+Here is a video of the ego vehicle executing a left lane change.
+
+![image](./imgs/left_lane_change.gif)
+
 ## When a car is detected in Ego vehicle's path
 ### Right lane change
 
@@ -307,6 +311,12 @@ else if (ego_lane != 2 && right_lane_car == false)
   std::cout<<"Change to right lane "<<ego_lane<<"..."<<std::endl;
 }
 ```
+
+Here is a video of the ego vehicle executing a right lane change.
+
+![image](./imgs/right_lane_change.gif)
+
+(As can be seen, right lane change is executed only when overtaking from the left lane is not possible.)
 
 ### Slow Down and Track preceding vehicle
 
@@ -342,6 +352,11 @@ if (too_close)
   speed_diff -= (0.75*max_acc);
 }
 ```
+
+Here is a video of the ego vehicle executing a slow down code.
+
+![image](./imgs/slow_down.gif)
+
 
 ## When there is no obstacle
 
